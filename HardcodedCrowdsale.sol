@@ -205,9 +205,10 @@ contract HardcodedCrowdsale {
                 preICOcoinsLeft[i] = preICOcoinsLeft[i].sub(forThisRate);
             }
             uint256 consumed = forThisRate.mul(preICOprice);
+	    uint256 weekbonus = getWeekBonus(forThisRate).sub(forThisRate);
             value = value.sub(consumed);
             forThisRate = forThisRate.mul(_amountBonusMultiplier.add(preICObonusMultipiersInPercent[i]).sub(100)).div(100);
-            totalPurchased = totalPurchased.add(forThisRate);
+            totalPurchased = totalPurchased.add(forThisRate).add(weekbonus);
         }
         return (totalPurchased, value);
     }
@@ -246,7 +247,6 @@ contract HardcodedCrowdsale {
         address _for = msg.sender;
         uint256 amountBonus = getBonusMultipierInPercents(msg.value);
         var (tokensBought, fundsLeftScaled) = calculateAmountBoughtPreICO(weisSentScaled, amountBonus);
-        tokensBought = getWeekBonus(tokensBought);
         if (tokensBought < minTokensToBuy.mul(DECIMAL_MULTIPLIER)) {
             revert();
         }
