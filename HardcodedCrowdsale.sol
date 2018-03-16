@@ -50,7 +50,7 @@ contract HardcodedCrowdsale {
 
     bool public halted = false;
      
-    uint256 public minTokensToBuy = 1;
+    uint256 public minTokensToBuy = 100;
     
     uint256 public preICOcontributors = 0;
 
@@ -67,7 +67,7 @@ contract HardcodedCrowdsale {
 
     uint8 public saleIndex = 0;
  
-    uint256 public preICOprice = uint256(1 ether).div(10);
+    uint256 public preICOprice = uint256(1 ether).div(1000);
     uint256[3] public preICObonusMultipiersInPercent = [150, 145, 140];
     uint256[3] public preICOcoinsLeft = [1000000*DECIMAL_MULTIPLIER, 1000000*DECIMAL_MULTIPLIER, 1000000*DECIMAL_MULTIPLIER];
     uint256 public totalPreICOavailibleWithBonus = 4350000*DECIMAL_MULTIPLIER; 
