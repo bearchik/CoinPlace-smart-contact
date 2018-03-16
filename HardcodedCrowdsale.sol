@@ -62,7 +62,7 @@ contract HardcodedCrowdsale {
     uint256 public preICOtokensSold = 0;
     ICOStateEnum public preICOstate = ICOStateEnum.NotStarted;
     
-    uint8 public decimals = 18;
+    uint8 public decimals = 9;
     uint256 public DECIMAL_MULTIPLIER = 10**uint256(decimals);
 
     uint8 public saleIndex = 0;
