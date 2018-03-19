@@ -228,13 +228,13 @@ contract HardcodedCrowdsale {
     function getWeekBonus(uint256 amountTokens) internal view returns(uint256 count) {
         uint256 countCoints = 0;
         uint256 bonusMultiplier = 100;
-        if(now <= (preICOstart + 1 weeks)) {
+        if(block.timestamp <= (preICOstart + 1 weeks)) {
             countCoints = amountTokens.mul(preICOweekBonus[0] );
-        } else if (now <= (preICOstart + 2 weeks) && now <= (preICOstart + 3 weeks)) {
+        } else if (block.timestamp <= (preICOstart + 2 weeks) && block.timestamp <= (preICOstart + 3 weeks)) {
             countCoints = amountTokens.mul(preICOweekBonus[1] );
-        } else if (now <= (preICOstart + 4 weeks) && now <= (preICOstart + 5 weeks)) {
+        } else if (block.timestamp <= (preICOstart + 4 weeks) && block.timestamp <= (preICOstart + 5 weeks)) {
             countCoints = amountTokens.mul(preICOweekBonus[2] );
-        } else if (now <= (preICOstart + 6 weeks) && now <= (preICOstart + 7 weeks)) {
+        } else if (block.timestamp <= (preICOstart + 6 weeks) && block.timestamp <= (preICOstart + 7 weeks)) {
             countCoints = amountTokens.mul(preICOweekBonus[3] );
         } else {
             countCoints = amountTokens.mul(preICOweekBonus[4] );
