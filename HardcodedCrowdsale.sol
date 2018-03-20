@@ -55,23 +55,18 @@ contract HardcodedCrowdsale {
     uint256 public ICOcontributors = 0;
 
     uint256 public ICOstart = 1521518400; //20 Mar 2018 13:00:00 GMT+9
-    uint256 public ICOend = 1526788800; // 20 May 2018 13:00:00 GMT+9
+    uint256 public ICOend = 1526857200; // 20 May 2018 13:00:00 GMT+9
     uint256 public Hardcap = 20000 ether; 
     uint256 public ICOcollected = 0;
     uint256 public Softcap = 200 ether;
     uint256 public ICOtokensSold = 0;
+    uint256 public TakedFunds = 0;
     ICOStateEnum public ICOstate = ICOStateEnum.NotStarted;
     
     uint8 public decimals = 9;
     uint256 public DECIMAL_MULTIPLIER = 10**uint256(decimals);
-
-    uint8 public saleIndex = 0;
  
     uint256 public ICOprice = uint256(1 ether).div(1000);
-    uint256[3] public ICObonusMultipiersInPercent = [150, 145, 140];
-    uint256[3] public ICOcoinsLeft = [1000000*DECIMAL_MULTIPLIER, 1000000*DECIMAL_MULTIPLIER, 1000000*DECIMAL_MULTIPLIER];
-    uint256 public totalICOavailibleWithBonus = 4350000*DECIMAL_MULTIPLIER; 
-    uint256 public maxIssuedWithAmountBasedBonus = 4650000*DECIMAL_MULTIPLIER; 
     uint256[4] public ICOamountBonusLimits = [5 ether, 20 ether, 50 ether, 300 ether];
     uint256[4] public ICOamountBonusMultipierInPercent = [103, 105, 107, 110]; // count bonus
     uint256[5] public ICOweekBonus = [130, 125, 120, 115, 110]; // time bonus
@@ -97,12 +92,9 @@ contract HardcodedCrowdsale {
             if (Hardcap > 0 && ICOcollected >= Hardcap) {
                 ICOstate = ICOStateEnum.Successful;
             }
-            if ( (saleIndex == ICOcoinsLeft.length) && (ICOcoinsLeft[saleIndex-1] == 0) ) {
-                ICOstate = ICOStateEnum.Successful;
-            }
         } if (now >= ICOend) {
             if (ICOstate == ICOStateEnum.Started) {
-                if (ICOcollected >= Hardcap) {
+                if (ICOcollected >= Softcap) {
                     ICOstate = ICOStateEnum.Successful;
                 } else {
                     ICOstate = ICOStateEnum.Refunded;
@@ -176,7 +168,7 @@ contract HardcodedCrowdsale {
     
     function finalize() stateTransition public returns (bool success) {
         require(ICOstate == ICOStateEnum.Successful);
-        owner.transfer(ICOcollected);
+        owner.transfer(ICOcollected - TakedFunds);
         return true;
     }
 
@@ -189,27 +181,12 @@ contract HardcodedCrowdsale {
         internal returns (uint256 _tokensToBuyScaled, uint256 _weisLeftScaled) {
         uint256 value = _weisSentScaled;
         uint256 totalPurchased = 0;
-        for (uint8 i = saleIndex; i < ICOcoinsLeft.length; i++) {
-            if (ICOcoinsLeft[i] == 0) {
-                continue;
-            }
-            uint256 forThisRate = value.div(ICOprice);
-            if (forThisRate == 0) {
-                break;
-            }
-            if (forThisRate >= ICOcoinsLeft[i]) {
-                forThisRate = ICOcoinsLeft[i];
-                ICOcoinsLeft[i] = 0;
-                saleIndex = i+1;
-            } else {
-                ICOcoinsLeft[i] = ICOcoinsLeft[i].sub(forThisRate);
-            }
-            uint256 consumed = forThisRate.mul(ICOprice);
-	    uint256 weekbonus = getWeekBonus(forThisRate).sub(forThisRate);
-            value = value.sub(consumed);
-            forThisRate = forThisRate.mul(_amountBonusMultiplier.add(ICObonusMultipiersInPercent[i]).sub(100)).div(100);
-            totalPurchased = totalPurchased.add(forThisRate).add(weekbonus);
-        }
+        
+        totalPurchased = value.div(ICOprice);
+	    uint256 weekbonus = getWeekBonus(totalPurchased).sub(totalPurchased);
+	    uint256 forThisRate = totalPurchased.mul(_amountBonusMultiplier).div(100).sub(totalPurchased);
+        totalPurchased = totalPurchased.add(forThisRate).add(weekbonus);
+        
         return (totalPurchased, value);
     }
 
@@ -286,8 +263,8 @@ contract HardcodedCrowdsale {
     
     function withdrawFunds() onlyOwner public returns (bool success) {
         require(Softcap <= ICOcollected);
-        owner.transfer(ICOcollected);
-        ICOcollected = 0;
+        owner.transfer(ICOcollected - TakedFunds);
+        TakedFunds = ICOcollected;
         return true;
     }
     
