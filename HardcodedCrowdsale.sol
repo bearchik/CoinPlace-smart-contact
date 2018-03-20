@@ -1,6 +1,6 @@
 pragma solidity ^0.4.18;
 
-// Created by LLC "Uinkey" bearchik@gmail.com
+// Created by LLC "Uinkey" bearchik@gmail.com 
 
 library SafeMath {
   function mul(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -26,122 +26,135 @@ library SafeMath {
   }
 }
 
-interface ManagedToken{
-    function setLock(bool _newLockState) public returns (bool success);
-    function mint(address _for, uint256 _amount) public returns (bool success);
-    function demint(address _for, uint256 _amount) public returns (bool success);
-    function decimals() view public returns (uint8 decDigits);
-    function totalSupply() view public returns (uint256 supply);
-    function balanceOf(address _owner) view public returns (uint256 balance);
+interface TokenUpgraderInterface{
+    function hasUpgraded(address _for) public view returns (bool alreadyUpgraded);
+    function upgradeFor(address _for, uint256 _value) public returns (bool success);
+    function upgradeFrom(address _by, address _for, uint256 _value) public returns (bool success);
 }
   
-contract HardcodedCrowdsale {
+contract ManagedToken {
     using SafeMath for uint256;
 
-    //global definisions
-
-    enum ICOStateEnum {NotStarted, Started, Refunded, Successful}
-
     address public owner = msg.sender;
-    ManagedToken public managedTokenLedger;
+    address public crowdsaleContractAddress;
+    address public crowdsaleManager;
 
-    string public name = "Coinplace";
-    string public symbol = "CPL";
+    string public name;
+    string public symbol;
 
-    bool public halted = false;
-     
-    uint256 public minTokensToBuy = 100;
-    
-    uint256 public ICOcontributors = 0;
+    bool public upgradable = false;
+    bool public upgraderSet = false;
+    TokenUpgraderInterface public upgrader;
 
-    uint256 public ICOstart = 1521518400; //20 Mar 2018 13:00:00 GMT+9
-    uint256 public ICOend = 1526857200; // 20 May 2018 13:00:00 GMT+9
-    uint256 public Hardcap = 20000 ether; 
-    uint256 public ICOcollected = 0;
-    uint256 public Softcap = 200 ether;
-    uint256 public ICOtokensSold = 0;
-    uint256 public TakedFunds = 0;
-    ICOStateEnum public ICOstate = ICOStateEnum.NotStarted;
-    
-    uint8 public decimals = 9;
-    uint256 public DECIMAL_MULTIPLIER = 10**uint256(decimals);
- 
-    uint256 public ICOprice = uint256(1 ether).div(1000);
-    uint256[4] public ICOamountBonusLimits = [5 ether, 20 ether, 50 ether, 200 ether];
-    uint256[4] public ICOamountBonusMultipierInPercent = [103, 105, 107, 110]; // count bonus
-    uint256[5] public ICOweekBonus = [130, 125, 120, 115, 110]; // time bonus
+    bool public locked = true;
+    bool public mintingAllowed = true;
+    uint8 public decimals = 18;
 
-    mapping(address => uint256) public weiForRefundICO;
-
-    mapping(address => uint256) public weiToRecoverICO;
-
-    mapping(address => uint256) public balancesForICO;
-
-    event Purchased(address indexed _from, uint256 _value);
-
-    function advanceState() public returns (bool success) {
-        transitionState();
-        return true;
-    }
-
-    function transitionState() internal {
-        if (now >= ICOstart) {
-            if (ICOstate == ICOStateEnum.NotStarted) {
-                ICOstate = ICOStateEnum.Started;
-            }
-            if (Hardcap > 0 && ICOcollected >= Hardcap) {
-                ICOstate = ICOStateEnum.Successful;
-            }
-        } if (now >= ICOend) {
-            if (ICOstate == ICOStateEnum.Started) {
-                if (ICOcollected >= Softcap) {
-                    ICOstate = ICOStateEnum.Successful;
-                } else {
-                    ICOstate = ICOStateEnum.Refunded;
-                }
-            }
-        } 
-    }
-
-    modifier stateTransition() {
-        transitionState();
-        _;
-        transitionState();
-    }
-
-    modifier notHalted() {
-        require(!halted);
+    modifier unlocked() {
+        require(!locked);
         _;
     }
 
+    modifier unlockedOrByManager() {
+        require(!locked || (crowdsaleManager != address(0) && msg.sender == crowdsaleManager) || (msg.sender == owner));
+        _;
+    }
     // Ownership
 
-    event OwnershipTransferred(address indexed viousOwner, address indexed newOwner);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     modifier onlyOwner() {
         require(msg.sender == owner);
         _;
     }
 
-    function transferOwnership(address newOwner) public onlyOwner {
+    modifier onlyCrowdsale() {
+        require(msg.sender == crowdsaleContractAddress);
+        _;
+    }
+
+    modifier ownerOrCrowdsale() {
+        require(msg.sender == owner || msg.sender == crowdsaleContractAddress);
+        _;
+    }
+
+    function transferOwnership(address newOwner) public onlyOwner returns (bool success) {
         require(newOwner != address(0));      
         OwnershipTransferred(owner, newOwner);
         owner = newOwner;
+        return true;
+    }
+
+
+    // ERC20 related functions
+
+    uint256 public totalSupply = 0;
+
+    mapping(address => uint256) balances;
+    mapping (address => mapping (address => uint256)) allowed;
+
+
+    event Transfer(address indexed _from, address indexed _to, uint256 _value);
+    event Approval(address indexed _owner, address indexed _spender, uint256 _value);
+
+    function transfer(address _to, uint256 _value) unlockedOrByManager public returns (bool) {
+        require(_to != address(0));
+        balances[msg.sender] = balances[msg.sender].sub(_value);
+        balances[_to] = balances[_to].add(_value);
+        Transfer(msg.sender, _to, _value);
+        return true;
     }
 
     function balanceOf(address _owner) view public returns (uint256 balance) {
-        return managedTokenLedger.balanceOf(_owner);
+        return balances[_owner];
     }
 
-    function totalSupply() view public returns (uint256 balance) {
-        return managedTokenLedger.totalSupply();
+    function transferFrom(address _from, address _to, uint256 _value) unlocked public returns (bool) {
+        require(_to != address(0));
+        var _allowance = allowed[_from][msg.sender];
+        balances[_from] = balances[_from].sub(_value);
+        balances[_to] = balances[_to].add(_value);
+        allowed[_from][msg.sender] = _allowance.sub(_value);
+        Transfer(_from, _to, _value);
+        return true;
     }
 
+    function approve(address _spender, uint256 _value) unlocked public returns (bool) {
+        require((_value == 0) || (allowed[msg.sender][_spender] == 0));
+        allowed[msg.sender][_spender] = _value;
+        Approval(msg.sender, _spender, _value);
+        return true;
+    }
 
-    function HardcodedCrowdsale (address _newLedgerAddress) public {
-        require(_newLedgerAddress != address(0));
-        managedTokenLedger = ManagedToken(_newLedgerAddress);
-        assert(managedTokenLedger.decimals() == decimals);
+    function allowance(address _owner, address _spender) view public returns (uint256 remaining) {
+        return allowed[_owner][_spender];
+    }
+
+    function increaseApproval (address _spender, uint _addedValue) unlocked public
+        returns (bool success) {
+            allowed[msg.sender][_spender] = allowed[msg.sender][_spender].add(_addedValue);
+            Approval(msg.sender, _spender, allowed[msg.sender][_spender]);
+            return true;
+    }
+
+    function decreaseApproval (address _spender, uint _subtractedValue) unlocked public
+        returns (bool success) {
+            uint oldValue = allowed[msg.sender][_spender];
+            if (_subtractedValue > oldValue) {
+            allowed[msg.sender][_spender] = 0;
+            } else {
+            allowed[msg.sender][_spender] = oldValue.sub(_subtractedValue);
+            }
+            Approval(msg.sender, _spender, allowed[msg.sender][_spender]);
+            return true;
+    }
+
+    function ManagedToken (string _name, string _symbol, uint8 _decimals) public {
+        require(bytes(_name).length > 1);
+        require(bytes(_symbol).length > 1);
+        name = _name;
+        symbol = _symbol;
+        decimals = _decimals;
     }
 
     function setNameAndTicker(string _name, string _symbol) onlyOwner public returns (bool success) {
@@ -152,132 +165,89 @@ contract HardcodedCrowdsale {
         return true;
     }
 
-    function setLedger (address _newLedgerAddress) onlyOwner public returns (bool success) {
-        require(_newLedgerAddress != address(0));
-        managedTokenLedger = ManagedToken(_newLedgerAddress);
-        assert(managedTokenLedger.decimals() == decimals);
+    function setLock(bool _newLockState) ownerOrCrowdsale public returns (bool success) {
+        require(_newLockState != locked);
+        locked = _newLockState;
         return true;
     }
 
-    function () payable stateTransition notHalted external {
-        require(msg.value > 0);
-        require(ICOstate == ICOStateEnum.Started);
-        assert(ICOBuy());
-    }
-
-    
-    function finalize() stateTransition public returns (bool success) {
-        require(ICOstate == ICOStateEnum.Successful);
-        owner.transfer(ICOcollected - TakedFunds);
+    function disableMinting() ownerOrCrowdsale public returns (bool success) {
+        require(mintingAllowed);
+        mintingAllowed = false;
         return true;
     }
 
-    function setHalt(bool _halt) onlyOwner public returns (bool success) {
-        halted = _halt;
+    function setCrowdsale(address _newCrowdsale) onlyOwner public returns (bool success) {
+        crowdsaleContractAddress = _newCrowdsale;
         return true;
     }
 
-    function calculateAmountBoughtICO(uint256 _weisSentScaled, uint256 _amountBonusMultiplier) 
-        internal returns (uint256 _tokensToBuyScaled, uint256 _weisLeftScaled) {
-        uint256 value = _weisSentScaled;
-        uint256 totalPurchased = 0;
-        
-        totalPurchased = value.div(ICOprice);
-	    uint256 weekbonus = getWeekBonus(totalPurchased).sub(totalPurchased);
-	    uint256 forThisRate = totalPurchased.mul(_amountBonusMultiplier).div(100).sub(totalPurchased);
-        totalPurchased = totalPurchased.add(forThisRate).add(weekbonus);
-        
-        return (totalPurchased, value);
+    function setManager(address _newManager) onlyOwner public returns (bool success) {
+        crowdsaleManager = _newManager;
+        return true;
     }
 
-    function getBonusMultipierInPercents(uint256 _sentAmount) public view returns (uint256 _multi) {
-        uint256 bonusMultiplier = 100;
-        for (uint8 i = 0; i < ICOamountBonusLimits.length; i++) {
-            if (_sentAmount < ICOamountBonusLimits[i]) {
-                break;
-            } else {
-                bonusMultiplier = ICOamountBonusMultipierInPercent[i];
-            }
+    function mint(address _for, uint256 _amount) onlyCrowdsale public returns (bool success) {
+        require(mintingAllowed);
+        balances[_for] = balances[_for].add(_amount);
+        totalSupply = totalSupply.add(_amount);
+        Transfer(0, _for, _amount);
+        return true;
+    }
+
+    function demint(address _for, uint256 _amount) onlyCrowdsale public returns (bool success) {
+        require(mintingAllowed);
+        balances[_for] = balances[_for].sub(_amount);
+        totalSupply = totalSupply.sub(_amount);
+        Transfer(_for, 0, _amount);
+        return true;
+    }
+
+    function allowUpgrading(bool _newState) onlyOwner public returns (bool success) {
+        upgradable = _newState;
+        return true;
+    }
+
+    function setUpgrader(address _upgraderAddress) onlyOwner public returns (bool success) {
+        require(!upgraderSet);
+        require(_upgraderAddress != address(0));
+        upgraderSet = true;
+        upgrader = TokenUpgraderInterface(_upgraderAddress);
+        return true;
+    }
+
+    function upgrade() public returns (bool success) {
+        require(upgradable);
+        require(upgraderSet);
+        require(upgrader != TokenUpgraderInterface(0));
+        uint256 value = balances[msg.sender];
+        assert(value > 0);
+        delete balances[msg.sender];
+        totalSupply = totalSupply.sub(value);
+        assert(upgrader.upgradeFor(msg.sender, value));
+        return true;
+    }
+
+    function upgradeFor(address _for, uint256 _value) public returns (bool success) {
+        require(upgradable);
+        require(upgraderSet);
+        require(upgrader != TokenUpgraderInterface(0));
+        var _allowance = allowed[_for][msg.sender];
+        require(_allowance > 0);
+        require(_allowance >= _value);
+        balances[_for] = balances[_for].sub(_value);
+        allowed[_for][msg.sender] = _allowance.sub(_value);
+        totalSupply = totalSupply.sub(_value);
+        assert(upgrader.upgradeFrom(msg.sender, _for, _value));
+        return true;
+    }
+
+    function () external {
+        if (upgradable) {
+            assert(upgrade());
+            return;
         }
-        return bonusMultiplier;
-    }
-    
-    function getWeekBonus(uint256 amountTokens) internal view returns(uint256 count) {
-        uint256 countCoints = 0;
-        uint256 bonusMultiplier = 100;
-        if(block.timestamp <= (ICOstart + 1 weeks)) {
-            countCoints = amountTokens.mul(ICOweekBonus[0] );
-        } else if (block.timestamp <= (ICOstart + 2 weeks) && block.timestamp <= (ICOstart + 3 weeks)) {
-            countCoints = amountTokens.mul(ICOweekBonus[1] );
-        } else if (block.timestamp <= (ICOstart + 4 weeks) && block.timestamp <= (ICOstart + 5 weeks)) {
-            countCoints = amountTokens.mul(ICOweekBonus[2] );
-        } else if (block.timestamp <= (ICOstart + 6 weeks) && block.timestamp <= (ICOstart + 7 weeks)) {
-            countCoints = amountTokens.mul(ICOweekBonus[3] );
-        } else {
-            countCoints = amountTokens.mul(ICOweekBonus[4] );
-        }
-        return countCoints.div(bonusMultiplier);
-    }
-
-    function ICOBuy() internal notHalted returns (bool success) {
-        uint256 weisSentScaled = msg.value.mul(DECIMAL_MULTIPLIER);
-        address _for = msg.sender;
-        uint256 amountBonus = getBonusMultipierInPercents(msg.value);
-        var (tokensBought, fundsLeftScaled) = calculateAmountBoughtICO(weisSentScaled, amountBonus);
-        if (tokensBought < minTokensToBuy.mul(DECIMAL_MULTIPLIER)) {
-            revert();
-        }
-        uint256 fundsLeft = fundsLeftScaled.div(DECIMAL_MULTIPLIER);
-        uint256 totalSpent = msg.value.sub(fundsLeft);
-        if (balanceOf(_for) == 0) {
-            ICOcontributors = ICOcontributors + 1;
-        }
-        managedTokenLedger.mint(_for, tokensBought);
-        balancesForICO[_for] = balancesForICO[_for].add(tokensBought);
-        weiForRefundICO[_for] = weiForRefundICO[_for].add(totalSpent);
-        weiToRecoverICO[_for] = weiToRecoverICO[_for].add(fundsLeft);
-        Purchased(_for, tokensBought);
-        ICOcollected = ICOcollected.add(totalSpent);
-        ICOtokensSold = ICOtokensSold.add(tokensBought);
-        return true;
-    }
-
-    function recoverLeftoversICO() stateTransition notHalted public returns (bool success) {
-        require(ICOstate != ICOStateEnum.NotStarted);
-        uint256 value = weiToRecoverICO[msg.sender];
-        delete weiToRecoverICO[msg.sender];
-        msg.sender.transfer(value);
-        return true;
-    }
-
-    function refundICO() stateTransition notHalted public returns (bool success) {
-        require(ICOstate == ICOStateEnum.Refunded);
-        uint256 value = weiForRefundICO[msg.sender];
-        delete weiForRefundICO[msg.sender];
-        uint256 tokenValue = balancesForICO[msg.sender];
-        delete balancesForICO[msg.sender];
-        managedTokenLedger.demint(msg.sender, tokenValue);
-        msg.sender.transfer(value);
-        return true;
-    }
-    
-    function withdrawFunds() onlyOwner public returns (bool success) {
-        require(Softcap <= ICOcollected);
-        owner.transfer(ICOcollected - TakedFunds);
-        TakedFunds = ICOcollected;
-        return true;
-    }
-    
-    function manualSendTokens(address rAddress, uint256 amount) onlyOwner public returns (bool success) {
-        managedTokenLedger.mint(rAddress, amount);
-        balancesForICO[rAddress] = balancesForICO[rAddress].add(amount);
-        Purchased(rAddress, amount);
-        ICOtokensSold = ICOtokensSold.add(amount);
-        return true;
-    } 
-
-    function cleanup() onlyOwner public {
-        selfdestruct(owner);
+        revert();
     }
 
 }
