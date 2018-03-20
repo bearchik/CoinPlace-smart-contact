@@ -67,7 +67,7 @@ contract HardcodedCrowdsale {
     uint256 public DECIMAL_MULTIPLIER = 10**uint256(decimals);
  
     uint256 public ICOprice = uint256(1 ether).div(1000);
-    uint256[4] public ICOamountBonusLimits = [5 ether, 20 ether, 50 ether, 300 ether];
+    uint256[4] public ICOamountBonusLimits = [5 ether, 20 ether, 50 ether, 200 ether];
     uint256[4] public ICOamountBonusMultipierInPercent = [103, 105, 107, 110]; // count bonus
     uint256[5] public ICOweekBonus = [130, 125, 120, 115, 110]; // time bonus
 
